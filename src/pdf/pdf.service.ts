@@ -1,23 +1,50 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { load } from 'cheerio';
-import pdfParse from 'pdf-parse';
 import puppeteer from 'puppeteer';
+// pdf2json exposes a CommonJS class constructor.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const PDFParser = require('pdf2json');
+
+interface Pdf2JsonTextRun {
+  T?: string;
+  TS?: number[];
+}
+
+interface Pdf2JsonText {
+  x?: number;
+  y?: number;
+  R?: Pdf2JsonTextRun[];
+}
+
+interface Pdf2JsonPage {
+  Width?: number;
+  Height?: number;
+  Texts?: Pdf2JsonText[];
+}
+
+interface Pdf2JsonData {
+  Pages?: Pdf2JsonPage[];
+}
 
 @Injectable()
 export class PdfService {
+  private static readonly PDF2JSON_UNIT_TO_PT = 16;
+
   async convertPdfBufferToHtml(pdfBuffer: Buffer): Promise<string> {
     if (!pdfBuffer?.length) {
       throw new BadRequestException('Arquivo PDF vazio ou inválido.');
     }
 
-    const parsed = await pdfParse(pdfBuffer);
-    const text = parsed.text?.trim();
+    const parsed = await this.parsePdfWithCoordinates(pdfBuffer);
+    const pages = parsed.Pages ?? [];
 
-    if (!text) {
-      throw new BadRequestException('Não foi possível extrair texto do PDF.');
+    if (!pages.length) {
+      throw new BadRequestException(
+        'Não foi possível extrair estrutura do PDF para HTML.',
+      );
     }
 
-    return this.textToHtml(text);
+    return this.positionedPdfToHtml(pages);
   }
 
   async convertHtmlToPdfBuffer(html: string): Promise<Buffer> {
@@ -66,49 +93,42 @@ export class PdfService {
     return extractedText.length > 0;
   }
 
-  private textToHtml(text: string): string {
-    const normalized = text
-      .replace(/\r\n/g, '\n')
-      .replace(/\u0000/g, '')
-      .replace(/\t/g, ' ')
-      .trim();
+  private parsePdfWithCoordinates(pdfBuffer: Buffer): Promise<Pdf2JsonData> {
+    return new Promise((resolve, reject) => {
+      const pdfParser = new PDFParser();
 
-    const blocks = normalized
-      .split(/\n{2,}/)
-      .map((chunk) => chunk.trim())
-      .filter(Boolean);
+      pdfParser.on('pdfParser_dataReady', (data: Pdf2JsonData) => resolve(data));
+      pdfParser.on('pdfParser_dataError', (error: { parserError?: Error }) => {
+        reject(error?.parserError || new Error('Falha ao processar PDF.'));
+      });
 
-    const htmlBlocks: string[] = [];
+      pdfParser.parseBuffer(pdfBuffer);
+    });
+  }
 
-    for (const block of blocks) {
-      const lines = block
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean);
+  private positionedPdfToHtml(pages: Pdf2JsonPage[]): string {
+    const renderedPages = pages
+      .map((page) => {
+        const widthPt = this.toPoints(page.Width || 0);
+        const heightPt = this.toPoints(page.Height || 0);
 
-      if (!lines.length) {
-        continue;
-      }
+        if (!widthPt || !heightPt) {
+          return '';
+        }
 
-      const isBulletList = lines.every((line) => /^[-•*]\s+/.test(line));
-      if (isBulletList) {
-        const items = lines
-          .map((line) => line.replace(/^[-•*]\s+/, ''))
-          .map((line) => `<li>${this.escapeHtml(line)}</li>`)
-          .join('');
-        htmlBlocks.push(`<ul>${items}</ul>`);
-        continue;
-      }
+        const textNodes = (page.Texts || [])
+          .map((text) => this.textNodeToHtml(text))
+          .filter(Boolean)
+          .join('\n');
 
-      if (this.isHeadingCandidate(lines)) {
-        htmlBlocks.push(`<h2>${this.escapeHtml(lines.join(' '))}</h2>`);
-        continue;
-      }
+        return `<section class="pdf-page" style="width:${widthPt}pt;height:${heightPt}pt;">${textNodes}</section>`;
+      })
+      .filter(Boolean)
+      .join('\n');
 
-      htmlBlocks.push(`<p>${this.escapeHtml(lines.join(' '))}</p>`);
+    if (!renderedPages) {
+      throw new BadRequestException('PDF sem conteúdo renderizável.');
     }
-
-    const body = htmlBlocks.join('\n');
 
     return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -117,47 +137,43 @@ export class PdfService {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Currículo</title>
     <style>
-      body {
-        font-family: Arial, sans-serif;
-        font-size: 12pt;
-        line-height: 1.45;
-        color: #111;
+      * {
+        box-sizing: border-box;
       }
-      h1, h2, h3 {
-        margin: 14px 0 8px;
-      }
-      p {
-        margin: 0 0 8px;
-      }
-      ul {
-        margin: 0 0 10px 20px;
+
+      html, body {
+        margin: 0;
         padding: 0;
+        background: #f4f4f5;
       }
-      li {
-        margin-bottom: 4px;
+
+      body {
+        padding: 24px 0;
+      }
+
+      .pdf-page {
+        position: relative;
+        margin: 0 auto 20px auto;
+        background: #fff;
+        box-shadow: 0 2px 14px rgba(0, 0, 0, 0.12);
+        overflow: hidden;
+      }
+
+      .t {
+        position: absolute;
+        margin: 0;
+        padding: 0;
+        white-space: pre;
+        transform-origin: top left;
+        line-height: 1;
+        color: #111827;
       }
     </style>
   </head>
   <body>
-${body}
+${renderedPages}
   </body>
 </html>`;
-  }
-
-  private isHeadingCandidate(lines: string[]): boolean {
-    if (lines.length > 1) {
-      return false;
-    }
-
-    const line = lines[0];
-    const wordCount = line.split(/\s+/).length;
-
-    if (wordCount > 8 || line.length > 70) {
-      return false;
-    }
-
-    const hasTerminalPunctuation = /[.!?;:]$/.test(line);
-    return !hasTerminalPunctuation;
   }
 
   private escapeHtml(value: string): string {
@@ -167,5 +183,56 @@ ${body}
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  private textNodeToHtml(textNode: Pdf2JsonText): string {
+    const xPt = this.toPoints(textNode.x || 0);
+    const yPt = this.toPoints(textNode.y || 0);
+
+    const runs = textNode.R || [];
+    const content = runs.map((run) => this.decodePdfText(run.T || '')).join('');
+
+    if (!content.trim()) {
+      return '';
+    }
+
+    const styleToken = runs.find((run) => Array.isArray(run.TS))?.TS || [];
+    const fontSizePt = this.normalizeFontSize(styleToken[1]);
+    const bold = styleToken[2] === 1;
+    const italic = styleToken[3] === 1;
+
+    const style = [
+      `left:${xPt}pt`,
+      `top:${yPt}pt`,
+      `font-size:${fontSizePt}pt`,
+      bold ? 'font-weight:700' : 'font-weight:400',
+      italic ? 'font-style:italic' : 'font-style:normal',
+    ].join(';');
+
+    return `<p class="t" style="${style}">${this.escapeHtml(content)}</p>`;
+  }
+
+  private decodePdfText(value: string): string {
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  }
+
+  private toPoints(value: number): number {
+    return Number((value * PdfService.PDF2JSON_UNIT_TO_PT).toFixed(2));
+  }
+
+  private normalizeFontSize(value: number | undefined): number {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+      return 12;
+    }
+
+    if (value < 1) {
+      return Number((value * PdfService.PDF2JSON_UNIT_TO_PT).toFixed(2));
+    }
+
+    return Number(value.toFixed(2));
   }
 }
