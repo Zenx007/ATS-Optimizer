@@ -46,6 +46,10 @@ interface PositionedTextSegment {
   text: string;
 }
 
+interface SegmentAccumulator extends PositionedTextSegment {
+  lastX: number;
+}
+
 @Injectable()
 export class PdfService {
   private static readonly PDF2JSON_UNIT_TO_PT = 16;
@@ -207,13 +211,13 @@ ${renderedPages}
     const columnBreakThreshold = Math.max(pageWidth * 0.16, 4.2);
 
     const segments: PositionedTextSegment[] = [];
-    let current = {
+    let current: SegmentAccumulator = {
       x: fragments[0].x,
       y: fragments[0].y,
       fontSize: fragments[0].fontSize,
       bold: fragments[0].bold,
       italic: fragments[0].italic,
-      text: fragments[0].text,
+      text: this.normalizeFragmentText(fragments[0].text),
       lastX: fragments[0].x,
     };
 
@@ -247,13 +251,13 @@ ${renderedPages}
           fontSize: fragment.fontSize,
           bold: fragment.bold,
           italic: fragment.italic,
-          text: fragment.text,
+          text: this.normalizeFragmentText(fragment.text),
           lastX: fragment.x,
         };
         continue;
       }
 
-      current.text += fragment.text;
+      current.text = this.mergeFragmentText(current.text, fragment.text, xJump);
       current.lastX = fragment.x;
     }
 
@@ -292,6 +296,42 @@ ${renderedPages}
       })
       .filter((item): item is RawTextFragment => Boolean(item))
       .sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y));
+  }
+
+  private normalizeFragmentText(value: string): string {
+    const cleaned = value
+      .replace(/\u00a0/g, ' ')
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\r?\n/g, ' ');
+
+    if (!cleaned) {
+      return '';
+    }
+
+    if (/^\s+$/.test(cleaned)) {
+      return ' ';
+    }
+
+    return cleaned.trim();
+  }
+
+  private mergeFragmentText(currentText: string, rawFragmentText: string, xJump: number): string {
+    const nextText = this.normalizeFragmentText(rawFragmentText);
+    if (!nextText) {
+      return currentText;
+    }
+
+    if (nextText === ' ') {
+      return /\s$/.test(currentText) ? currentText : `${currentText} `;
+    }
+
+    const shouldInsertSpace =
+      xJump >= 1.4 &&
+      !/\s$/.test(currentText) &&
+      !/^[,.;:!?)]/.test(nextText) &&
+      !/[(/-]$/.test(currentText);
+
+    return `${currentText}${shouldInsertSpace ? ' ' : ''}${nextText}`;
   }
 
   private segmentToHtml(segment: PositionedTextSegment, pageHeightPt: number): string {
