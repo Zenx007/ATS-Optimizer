@@ -1,0 +1,21 @@
+services:
+  api:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ats-optimizer-api
+    ports:
+      - "${API_PORT:-3000}:3000"
+    environment:
+      PORT: 3000
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      PDF2HTMLEX_BIN: pdf2htmlEX
+    volumes:
+      - api_storage:/app/storage
+    restart: unless-stopped
+
+volumes:
+  api_storage:
