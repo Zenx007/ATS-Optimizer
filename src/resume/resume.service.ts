@@ -6,7 +6,7 @@ import {
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
-import { OpenAiService } from '../openai/openai.service';
+import { GeminiService } from '../gemini/gemini.service';
 import { PdfService } from '../pdf/pdf.service';
 import { ResumeRecord } from '../common/interfaces/resume-record.interface';
 import { OptimizeResumeDto } from './dto/optimize-resume.dto';
@@ -22,7 +22,7 @@ export class ResumeService {
 
   constructor(
     private readonly pdfService: PdfService,
-    private readonly openAiService: OpenAiService,
+    private readonly geminiService: GeminiService,
   ) {}
 
   async uploadResume(file: Express.Multer.File): Promise<UploadResult> {
@@ -81,7 +81,7 @@ export class ResumeService {
 
     const originalHtml = await fs.readFile(record.originalHtmlPath, 'utf-8');
 
-    const optimizedHtml = await this.openAiService.optimizeResume({
+    const optimizedHtml = await this.geminiService.optimizeResume({
       resumeHtml: originalHtml,
       jobDescription,
       immutableData,

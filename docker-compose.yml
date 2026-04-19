@@ -9,8 +9,8 @@ services:
       - "${API_PORT:-3000}:3000"
     environment:
       PORT: 3000
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       PDF2HTMLEX_BIN: pdf2htmlEX
     volumes:

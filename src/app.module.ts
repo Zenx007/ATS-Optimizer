@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { OpenAiModule } from './openai/openai.module';
+import { GeminiModule } from './gemini/gemini.module';
 import { PdfModule } from './pdf/pdf.module';
 import { ResumeModule } from './resume/resume.module';
 
@@ -10,7 +10,7 @@ import { ResumeModule } from './resume/resume.module';
       isGlobal: true,
       envFilePath: '.env',
     }),
-    OpenAiModule,
+    GeminiModule,
     PdfModule,
     ResumeModule,
   ],

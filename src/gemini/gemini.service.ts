@@ -4,12 +4,19 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
 
 interface OptimizeInput {
   resumeHtml: string;
   jobDescription: string;
   immutableData: string;
+}
+
+interface GeminiGenerateContentResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{ text?: string }>;
+    };
+  }>;
 }
 
 const SYSTEM_PROMPT = `Você é um especialista em recrutamento, currículos e otimização para ATS.
@@ -27,51 +34,62 @@ Regras obrigatórias:
 - O HTML retornado deve estar completo e válido para renderização.`;
 
 @Injectable()
-export class OpenAiService {
-  private readonly client?: OpenAI;
+export class GeminiService {
+  private readonly apiKey?: string;
   private readonly model: string;
+  private readonly apiBaseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
 
   constructor(private readonly configService: ConfigService) {
-    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
-    if (apiKey) {
-      this.client = new OpenAI({ apiKey });
-    }
-    this.model = this.configService.get<string>('OPENAI_MODEL') || 'gpt-4.1-mini';
+    this.apiKey = this.configService.get<string>('GEMINI_API_KEY');
+    this.model = this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash';
   }
 
   async optimizeResume(input: OptimizeInput): Promise<string> {
-    if (!this.client) {
+    if (!this.apiKey) {
       throw new InternalServerErrorException(
-        'OPENAI_API_KEY não configurada no ambiente.',
+        'GEMINI_API_KEY não configurada no ambiente.',
       );
     }
 
     const prompt = this.buildPrompt(input);
 
     try {
-      const response = await this.client.responses.create({
-        model: this.model,
-        input: [
-          {
-            role: 'system',
-            content: [{ type: 'input_text', text: SYSTEM_PROMPT }],
+      const endpoint = `${this.apiBaseUrl}/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          system_instruction: {
+            parts: [{ text: SYSTEM_PROMPT }],
           },
-          {
-            role: 'user',
-            content: [{ type: 'input_text', text: prompt }],
-          },
-        ],
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: prompt }],
+            },
+          ],
+        }),
       });
 
-      const rawOutput = response.output_text?.trim();
+      if (!response.ok) {
+        const rawError = await response.text();
+        throw new BadGatewayException(
+          `Gemini retornou erro HTTP ${response.status}: ${rawError || 'sem detalhes'}`,
+        );
+      }
+
+      const data = (await response.json()) as GeminiGenerateContentResponse;
+      const rawOutput = this.extractTextFromResponse(data).trim();
       if (!rawOutput) {
-        throw new BadGatewayException('A OpenAI retornou uma resposta vazia.');
+        throw new BadGatewayException('O Gemini retornou uma resposta vazia.');
       }
 
       const cleanedOutput = this.stripCodeFences(rawOutput).trim();
       if (!this.looksLikeHtml(cleanedOutput)) {
         throw new BadGatewayException(
-          'A resposta da OpenAI não está em formato HTML válido.',
+          'A resposta do Gemini não está em formato HTML válido.',
         );
       }
 
@@ -82,9 +100,17 @@ export class OpenAiService {
       }
 
       const message =
-        error instanceof Error ? error.message : 'Erro desconhecido na OpenAI';
+        error instanceof Error ? error.message : 'Erro desconhecido no Gemini';
       throw new BadGatewayException(`Falha ao otimizar currículo com IA: ${message}`);
     }
+  }
+
+  private extractTextFromResponse(response: GeminiGenerateContentResponse): string {
+    const parts = response.candidates?.[0]?.content?.parts || [];
+    return parts
+      .map((part) => part.text || '')
+      .join('')
+      .trim();
   }
 
   private buildPrompt({ resumeHtml, jobDescription, immutableData }: OptimizeInput): string {
