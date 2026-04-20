@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
+import { Element, Node } from 'domhandler';
 import puppeteer from 'puppeteer';
 
 @Injectable()
@@ -38,11 +39,11 @@ export class PdfService {
         '--embed-css',
         '1',
         '--embed-font',
-        '1',
+        '0',
         '--embed-image',
         '1',
         '--embed-javascript',
-        '1',
+        '0',
         '--embed-outline',
         '1',
         '--printing',
@@ -52,13 +53,14 @@ export class PdfService {
       ]);
 
       const html = await fs.readFile(outputHtmlPath, 'utf-8');
-      if (!this.hasAnyHtmlTag(html)) {
+      const sanitizedHtml = this.sanitizeGeneratedHtml(html);
+      if (!this.hasAnyHtmlTag(sanitizedHtml)) {
         throw new BadRequestException(
           'A conversão com pdf2htmlEX não gerou HTML válido.',
         );
       }
 
-      return html;
+      return sanitizedHtml;
     } catch (error) {
       if (
         error instanceof BadRequestException ||
@@ -76,9 +78,10 @@ export class PdfService {
   }
 
   async convertHtmlToPdfBuffer(html: string): Promise<Buffer> {
-    if (!this.isValidHtml(html)) {
-      throw new BadRequestException('HTML otimizado inválido para geração de PDF.');
-    }
+      const sanitizedHtml = this.sanitizeGeneratedHtml(html);
+      if (!this.isValidHtml(sanitizedHtml)) {
+        throw new BadRequestException('HTML otimizado inválido para geração de PDF.');
+      }
 
     const browser = await puppeteer.launch({
       headless: true,
@@ -87,7 +90,7 @@ export class PdfService {
 
     try {
       const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: 'networkidle0' });
+      await page.setContent(sanitizedHtml, { waitUntil: 'networkidle0' });
 
       const pdf = await page.pdf({
         format: 'A4',
@@ -174,5 +177,70 @@ export class PdfService {
 
   private hasAnyHtmlTag(html: string): boolean {
     return /<\s*([a-z][a-z0-9]*)\b[^>]*>/i.test(html);
+  }
+
+  sanitizeGeneratedHtml(html: string): string {
+    if (!html) {
+      return html;
+    }
+
+    let sanitized = html;
+    sanitized = this.stripNonHtmlArtifacts(sanitized);
+    sanitized = this.stripPdf2HtmlExResidualPayload(sanitized);
+    sanitized = this.stripEmbeddedFontFaces(sanitized);
+    sanitized = this.stripDataFontUris(sanitized);
+    return sanitized;
+  }
+
+  private stripNonHtmlArtifacts(html: string): string {
+    const $ = load(html);
+
+    $('script, noscript, iframe, object, embed').remove();
+    $('#sidebar, #outline, .loading-indicator').remove();
+
+    this.removeComments($.root()[0]);
+    return $.html();
+  }
+
+  private stripEmbeddedFontFaces(html: string): string {
+    const withoutEmbeddedFontFaces = html.replace(/@font-face\s*{[\s\S]*?}\s*/gi, '');
+
+    return withoutEmbeddedFontFaces.replace(
+      /src\s*:\s*url\(\s*['"]?data:(?:application\/(?:x-)?font-[^;,\s]+|application\/octet-stream|font\/[^;,\s]+)(?:;[^;,]+)*;base64,[^'")]+['"]?\s*\)\s*;?/gi,
+      '',
+    );
+  }
+
+  private stripDataFontUris(html: string): string {
+    return html
+      .replace(
+        /data:(?:application\/(?:x-)?font-[^;,\s]+|application\/octet-stream|font\/[^;,\s]+)(?:;[^;,]+)*;base64,[a-z0-9+/=\s]+/gi,
+        '',
+      )
+      .replace(/url\(\s*['"]?\s*['"]?\s*\)/gi, 'none');
+  }
+
+  private stripPdf2HtmlExResidualPayload(html: string): string {
+    return html
+      .replace(/\/\*\s*https?:\/\/github\.com\/pdf2htmlEX[\s\S]*?\*\//gi, '')
+      .replace(/var\s+pdf2htmlEX\s*=\s*window\.pdf2htmlEX[\s\S]*?pdf2htmlEX\.Viewer\s*=\s*Viewer;[\s\S]*?\)\s*;?/gi, '')
+      .replace(/(?:^|\n)\s*(?:var\s+)?CSS_CLASS_NAMES\s*=\s*\{[\s\S]*?\};?/gi, '')
+      .replace(/(?:^|\n)\s*(?:var\s+)?DEFAULT_CONFIG\s*=\s*\{[\s\S]*?\};?/gi, '')
+      .replace(/<\/?script\b[^>]*>/gi, '')
+      .replace(/\}\)\s*;\s*$/gm, '')
+      .replace(/\s{3,}/g, ' ')
+      .trim();
+  }
+
+  private removeComments(node?: Node | null): void {
+    if (!node || !(node as Element).children) {
+      return;
+    }
+
+    const element = node as Element;
+    element.children = element.children.filter((child) => child.type !== 'comment');
+    for (const child of element.children) {
+      this.removeComments(child);
+    }
   }
 }

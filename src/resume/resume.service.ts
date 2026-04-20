@@ -35,7 +35,8 @@ export class ResumeService {
     const originalPdfPath = path.join(resumeDir, 'original.pdf');
     await fs.writeFile(originalPdfPath, file.buffer);
 
-    const originalHtml = await this.pdfService.convertPdfBufferToHtml(file.buffer);
+    const originalHtmlRaw = await this.pdfService.convertPdfBufferToHtml(file.buffer);
+    const originalHtml = this.pdfService.sanitizeGeneratedHtml(originalHtmlRaw);
     const originalHtmlPath = path.join(resumeDir, 'original.html');
     await fs.writeFile(originalHtmlPath, originalHtml, 'utf-8');
 
@@ -60,7 +61,8 @@ export class ResumeService {
     const record = await this.getRecordOrFail(id);
 
     const pdfBuffer = await fs.readFile(record.originalPdfPath);
-    const originalHtml = await this.pdfService.convertPdfBufferToHtml(pdfBuffer);
+    const originalHtmlRaw = await this.pdfService.convertPdfBufferToHtml(pdfBuffer);
+    const originalHtml = this.pdfService.sanitizeGeneratedHtml(originalHtmlRaw);
 
     await fs.writeFile(record.originalHtmlPath, originalHtml, 'utf-8');
 
@@ -79,13 +81,18 @@ export class ResumeService {
   ): Promise<{ resumeId: string; optimizedHtml: string }> {
     const record = await this.getRecordOrFail(id);
 
-    const originalHtml = await fs.readFile(record.originalHtmlPath, 'utf-8');
+    const originalHtmlRaw = await fs.readFile(record.originalHtmlPath, 'utf-8');
+    const originalHtml = this.pdfService.sanitizeGeneratedHtml(originalHtmlRaw);
+    if (originalHtml !== originalHtmlRaw) {
+      await fs.writeFile(record.originalHtmlPath, originalHtml, 'utf-8');
+    }
 
-    const optimizedHtml = await this.geminiService.optimizeResume({
+    const optimizedHtmlRaw = await this.geminiService.optimizeResume({
       resumeHtml: originalHtml,
       jobDescription,
       immutableData,
     });
+    const optimizedHtml = this.pdfService.sanitizeGeneratedHtml(optimizedHtmlRaw);
 
     if (!this.pdfService.isValidHtml(optimizedHtml)) {
       throw new UnprocessableEntityException(
@@ -119,7 +126,8 @@ export class ResumeService {
       );
     }
 
-    const optimizedHtml = await fs.readFile(record.optimizedHtmlPath, 'utf-8');
+    const optimizedHtmlRaw = await fs.readFile(record.optimizedHtmlPath, 'utf-8');
+    const optimizedHtml = this.pdfService.sanitizeGeneratedHtml(optimizedHtmlRaw);
     const finalPdfBuffer = await this.pdfService.convertHtmlToPdfBuffer(optimizedHtml);
 
     const finalPdfPath = path.join(this.getResumeDirectory(id), 'optimized.pdf');
@@ -145,7 +153,11 @@ export class ResumeService {
       );
     }
 
-    const optimizedHtml = await fs.readFile(record.optimizedHtmlPath, 'utf-8');
+    const optimizedHtmlRaw = await fs.readFile(record.optimizedHtmlPath, 'utf-8');
+    const optimizedHtml = this.pdfService.sanitizeGeneratedHtml(optimizedHtmlRaw);
+    if (optimizedHtml !== optimizedHtmlRaw) {
+      await fs.writeFile(record.optimizedHtmlPath, optimizedHtml, 'utf-8');
+    }
 
     return {
       resumeId: id,
