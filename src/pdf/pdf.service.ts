@@ -186,10 +186,189 @@ export class PdfService {
 
     let sanitized = html;
     sanitized = this.stripNonHtmlArtifacts(sanitized);
-    sanitized = this.stripPdf2HtmlExResidualPayload(sanitized);
     sanitized = this.stripEmbeddedFontFaces(sanitized);
     sanitized = this.stripDataFontUris(sanitized);
     return sanitized;
+  }
+
+  compactPdfLikeHtml(html: string): string {
+    if (!html) {
+      return html;
+    }
+
+    const $ = load(html);
+    const textNodes = $('.t');
+    if (!textNodes.length) {
+      return html;
+    }
+
+    type Segment = { top: number; left: number; text: string; bold: boolean };
+    type CompactLine = { text: string; isHeading: boolean };
+    type Block = { kind: 'heading' | 'paragraph'; text: string };
+    const segments: Segment[] = [];
+    const styleContent = $('style')
+      .map((_idx, styleTag) => $(styleTag).html() || '')
+      .get()
+      .join('\n');
+    const xByClass = this.extractClassCoordinateMap(styleContent, 'x', 'left');
+    const yTopByClass = this.extractClassCoordinateMap(styleContent, 'y', 'top');
+    const yBottomByClass = this.extractClassCoordinateMap(styleContent, 'y', 'bottom');
+
+    $('.pf').each((index, pageNode) => {
+      $(pageNode).attr('data-page-index', String(index));
+    });
+
+    textNodes.each((_idx, el) => {
+      const node = $(el);
+      const text = node.text().replace(/\s+/g, ' ').trim();
+      if (!text) {
+        return;
+      }
+
+      const style = (node.attr('style') || '').toLowerCase();
+      const classNames = (node.attr('class') || '').split(/\s+/).filter(Boolean);
+      const xClass = classNames.find((className) => /^x[a-z0-9]+$/i.test(className));
+      const yClass = classNames.find((className) => /^y[a-z0-9]+$/i.test(className));
+      const pageIndex = Number.parseInt(
+        node.closest('.pf').attr('data-page-index') || '0',
+        10,
+      );
+
+      let top = this.extractStyleNumber(style, 'top');
+      let left = this.extractStyleNumber(style, 'left');
+      const bottomFromStyle = this.extractStyleNumber(style, 'bottom');
+
+      if (left === null && xClass) {
+        left = xByClass.get(xClass) ?? null;
+      }
+
+      if (top === null && yClass) {
+        const mappedTop = yTopByClass.get(yClass);
+        if (mappedTop !== undefined) {
+          top = mappedTop;
+        } else {
+          const mappedBottom = yBottomByClass.get(yClass);
+          if (mappedBottom !== undefined) {
+            top = -mappedBottom;
+          }
+        }
+      }
+
+      if (top === null && bottomFromStyle !== null) {
+        top = -bottomFromStyle;
+      }
+
+      if (top === null) {
+        top = segments.length;
+      }
+
+      if (left === null) {
+        left = 0;
+      }
+
+      // Keep lines from different pages sorted in page order.
+      top += pageIndex * 10000;
+      const bold = /font-weight\s*:\s*(?:[6-9]00|bold)/i.test(style);
+
+      segments.push({ top, left, text, bold });
+    });
+
+    if (!segments.length) {
+      return html;
+    }
+
+    segments.sort((a, b) => (a.top === b.top ? a.left - b.left : a.top - b.top));
+
+    const lines: Array<{ top: number; parts: Segment[] }> = [];
+    const topTolerance = 1.2;
+    for (const seg of segments) {
+      const lastLine = lines[lines.length - 1];
+      if (!lastLine || Math.abs(lastLine.top - seg.top) > topTolerance) {
+        lines.push({ top: seg.top, parts: [seg] });
+      } else {
+        lastLine.parts.push(seg);
+      }
+    }
+
+    const compactLines: CompactLine[] = lines
+      .map((line) => {
+        line.parts.sort((a, b) => a.left - b.left);
+        const mergedText = this.mergeLineSegments(line.parts.map((p) => p.text));
+        const boldRatio =
+          line.parts.filter((part) => part.bold).length / Math.max(line.parts.length, 1);
+        const uppercaseLike = /^[A-Z0-9À-Þ\s:&/-]{4,}$/.test(mergedText);
+        const hasContactHints = /@|\||linkedin|github|https?:\/\/|www\./i.test(mergedText);
+        const headingByBold = boldRatio >= 0.7 && mergedText.length <= 100;
+        const headingByCase = uppercaseLike && mergedText.length <= 65;
+        return {
+          text: mergedText,
+          isHeading:
+            mergedText.length > 0 &&
+            !hasContactHints &&
+            (headingByBold || headingByCase) &&
+            mergedText.length <= 80,
+        };
+      })
+      .filter((line) => line.text.length > 0);
+
+    if (!compactLines.length) {
+      return html;
+    }
+
+    const blocks: Block[] = [];
+    let paragraphBuffer: string[] = [];
+
+    const flushParagraph = () => {
+      if (!paragraphBuffer.length) {
+        return;
+      }
+
+      const text = this.mergeLineSegments(paragraphBuffer);
+      if (text) {
+        blocks.push({ kind: 'paragraph', text });
+      }
+      paragraphBuffer = [];
+    };
+
+    for (const line of compactLines) {
+      if (line.isHeading) {
+        flushParagraph();
+        blocks.push({ kind: 'heading', text: line.text });
+        continue;
+      }
+
+      const previousLine = paragraphBuffer[paragraphBuffer.length - 1] || '';
+      if (this.shouldStartNewParagraph(previousLine, line.text)) {
+        flushParagraph();
+      }
+      paragraphBuffer.push(line.text);
+    }
+
+    flushParagraph();
+
+    const bodyLines = blocks.map((block, index) => {
+      const escapedText = this.escapeHtml(block.text);
+      if (block.kind === 'heading') {
+        const headingTag = index === 0 ? 'h1' : 'h2';
+        return `  <${headingTag}>${escapedText}</${headingTag}>`;
+      }
+      return `  <p>${escapedText}</p>`;
+    });
+
+    return [
+      '<!DOCTYPE html>',
+      '<html lang="pt-BR">',
+      '<head>',
+      '  <meta charset="UTF-8">',
+      '  <meta name="viewport" content="width=device-width, initial-scale=1">',
+      '  <title>Currículo</title>',
+      '  <style>body{font-family:Arial,sans-serif;color:#111;margin:24px auto;max-width:820px;line-height:1.45;padding:0 16px}h1{font-size:26px;margin:0 0 10px}h2{font-size:18px;margin:20px 0 8px}p{margin:0 0 8px}</style>',
+      '</head>',
+      '<body>',
+      ...bodyLines,
+      '</body>',
+      '</html>',
+    ].join('\n');
   }
 
   private stripNonHtmlArtifacts(html: string): string {
@@ -197,8 +376,14 @@ export class PdfService {
 
     $('script, noscript, iframe, object, embed').remove();
     $('#sidebar, #outline, .loading-indicator').remove();
+    $('.pi').remove(); // viewer metadata (ctm/page_data) not needed without js viewer
+    $('[data-page-url], [data-data], [data-dest-detail]').removeAttr(
+      'data-page-url data-data data-dest-detail',
+    );
+    this.handlePageContainer($);
 
     this.removeComments($.root()[0]);
+    this.removeEmptyTextNodes($.root()[0]);
     return $.html();
   }
 
@@ -220,18 +405,6 @@ export class PdfService {
       .replace(/url\(\s*['"]?\s*['"]?\s*\)/gi, 'none');
   }
 
-  private stripPdf2HtmlExResidualPayload(html: string): string {
-    return html
-      .replace(/\/\*\s*https?:\/\/github\.com\/pdf2htmlEX[\s\S]*?\*\//gi, '')
-      .replace(/var\s+pdf2htmlEX\s*=\s*window\.pdf2htmlEX[\s\S]*?pdf2htmlEX\.Viewer\s*=\s*Viewer;[\s\S]*?\)\s*;?/gi, '')
-      .replace(/(?:^|\n)\s*(?:var\s+)?CSS_CLASS_NAMES\s*=\s*\{[\s\S]*?\};?/gi, '')
-      .replace(/(?:^|\n)\s*(?:var\s+)?DEFAULT_CONFIG\s*=\s*\{[\s\S]*?\};?/gi, '')
-      .replace(/<\/?script\b[^>]*>/gi, '')
-      .replace(/\}\)\s*;\s*$/gm, '')
-      .replace(/\s{3,}/g, ' ')
-      .trim();
-  }
-
   private removeComments(node?: Node | null): void {
     if (!node || !(node as Element).children) {
       return;
@@ -242,5 +415,119 @@ export class PdfService {
     for (const child of element.children) {
       this.removeComments(child);
     }
+  }
+
+  private handlePageContainer($: ReturnType<typeof load>): void {
+    const first = $('#page-container').first();
+    if (!first.length) {
+      return;
+    }
+
+    first.replaceWith(first.contents());
+    $('#page-container').remove();
+  }
+
+  private removeEmptyTextNodes(node?: Node | null): void {
+    if (!node || !(node as Element).children) {
+      return;
+    }
+
+    const element = node as Element;
+    element.children = element.children.filter((child) => {
+      if (child.type !== 'text') {
+        return true;
+      }
+
+      const text = (child as unknown as { data?: string }).data || '';
+      return text.trim().length > 0;
+    });
+
+    for (const child of element.children) {
+      this.removeEmptyTextNodes(child);
+    }
+  }
+
+  private extractStyleNumber(
+    style: string,
+    key: 'top' | 'left' | 'bottom',
+  ): number | null {
+    const match = style.match(new RegExp(`${key}\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`));
+    if (!match) {
+      return null;
+    }
+
+    const value = Number.parseFloat(match[1]);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  private mergeLineSegments(parts: string[]): string {
+    let out = '';
+    for (const partRaw of parts) {
+      const part = partRaw.trim();
+      if (!part) {
+        continue;
+      }
+
+      if (!out) {
+        out = part;
+        continue;
+      }
+
+      const noLeadingSpace = /^[,.;:!?)]/.test(part);
+      const noTrailingSpace = /[(/,-]$/.test(out);
+      out += noLeadingSpace || noTrailingSpace ? part : ` ${part}`;
+    }
+
+    return out.replace(/\s+/g, ' ').trim();
+  }
+
+  private extractClassCoordinateMap(
+    css: string,
+    prefix: 'x' | 'y',
+    property: 'left' | 'top' | 'bottom',
+  ): Map<string, number> {
+    const map = new Map<string, number>();
+    const pattern = new RegExp(
+      `\\.(${prefix}[a-z0-9]+)\\s*\\{[^}]*?${property}\\s*:\\s*(-?\\d+(?:\\.\\d+)?)(?:px)?`,
+      'gi',
+    );
+
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(css)) !== null) {
+      const value = Number.parseFloat(match[2]);
+      if (Number.isFinite(value)) {
+        map.set(match[1], value);
+      }
+    }
+
+    return map;
+  }
+
+  private shouldStartNewParagraph(previousLine: string, currentLine: string): boolean {
+    if (!previousLine) {
+      return false;
+    }
+
+    if (/@|\|/.test(currentLine)) {
+      return true;
+    }
+
+    const dateLike = /^\d{1,2}\/\d{4}\s*[-–]/.test(currentLine);
+    if (dateLike) {
+      return true;
+    }
+
+    const looksLikeBullet =
+      /^[A-ZÀ-Ý][^:]{0,70}:\s/.test(currentLine) && /[.!?]$/.test(previousLine);
+    return looksLikeBullet;
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 }
