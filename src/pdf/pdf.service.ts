@@ -191,6 +191,49 @@ export class PdfService {
     return sanitized;
   }
 
+  extractCssFromHtml(html: string): string {
+    if (!html) {
+      return '';
+    }
+
+    const $ = load(html);
+    return $('style')
+      .map((_idx, styleTag) => ($(styleTag).html() || '').trim())
+      .get()
+      .filter((css) => css.length > 0)
+      .join('\n\n');
+  }
+
+  ensureHtmlHasCss(html: string, css: string): string {
+    if (!html) {
+      return html;
+    }
+
+    const normalizedCss = (css || '').trim();
+    if (!normalizedCss) {
+      return html;
+    }
+
+    if (this.extractCssFromHtml(html).length > 0) {
+      return html;
+    }
+
+    const styleTag = `  <style>${normalizedCss}</style>`;
+
+    if (/<\/head>/i.test(html)) {
+      return html.replace(/<\/head>/i, `${styleTag}\n</head>`);
+    }
+
+    if (/<body\b[^>]*>/i.test(html)) {
+      return html.replace(
+        /<body\b[^>]*>/i,
+        `<head>\n${styleTag}\n</head>\n$&`,
+      );
+    }
+
+    return `${styleTag}\n${html}`;
+  }
+
   compactPdfLikeHtml(html: string): string {
     if (!html) {
       return html;

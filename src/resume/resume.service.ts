@@ -14,6 +14,7 @@ import { OptimizeResumeDto } from './dto/optimize-resume.dto';
 export interface UploadResult {
   resumeId: string;
   originalHtml: string;
+  originalCss: string;
 }
 
 @Injectable()
@@ -36,7 +37,9 @@ export class ResumeService {
     await fs.writeFile(originalPdfPath, file.buffer);
 
     const originalHtmlRaw = await this.pdfService.convertPdfBufferToHtml(file.buffer);
-    const originalHtml = this.pdfService.sanitizeGeneratedHtml(originalHtmlRaw);
+    const originalHtmlSanitized = this.pdfService.sanitizeGeneratedHtml(originalHtmlRaw);
+    const originalHtml = this.pdfService.compactPdfLikeHtml(originalHtmlSanitized);
+    const originalCss = this.pdfService.extractCssFromHtml(originalHtml);
     const originalHtmlPath = path.join(resumeDir, 'original.html');
     await fs.writeFile(originalHtmlPath, originalHtml, 'utf-8');
 
@@ -54,15 +57,20 @@ export class ResumeService {
     return {
       resumeId,
       originalHtml,
+      originalCss,
     };
   }
 
-  async reconvertPdfToHtml(id: string): Promise<{ resumeId: string; originalHtml: string }> {
+  async reconvertPdfToHtml(
+    id: string,
+  ): Promise<{ resumeId: string; originalHtml: string; originalCss: string }> {
     const record = await this.getRecordOrFail(id);
 
     const pdfBuffer = await fs.readFile(record.originalPdfPath);
     const originalHtmlRaw = await this.pdfService.convertPdfBufferToHtml(pdfBuffer);
-    const originalHtml = this.pdfService.sanitizeGeneratedHtml(originalHtmlRaw);
+    const originalHtmlSanitized = this.pdfService.sanitizeGeneratedHtml(originalHtmlRaw);
+    const originalHtml = this.pdfService.compactPdfLikeHtml(originalHtmlSanitized);
+    const originalCss = this.pdfService.extractCssFromHtml(originalHtml);
 
     await fs.writeFile(record.originalHtmlPath, originalHtml, 'utf-8');
 
@@ -72,17 +80,21 @@ export class ResumeService {
     return {
       resumeId: id,
       originalHtml,
+      originalCss,
     };
   }
 
   async optimizeResume(
     id: string,
     { jobDescription, immutableData }: OptimizeResumeDto,
-  ): Promise<{ resumeId: string; optimizedHtml: string }> {
+  ): Promise<{ resumeId: string; optimizedHtml: string; optimizedCss: string }> {
     const record = await this.getRecordOrFail(id);
 
     const originalHtmlRaw = await fs.readFile(record.originalHtmlPath, 'utf-8');
-    const originalHtml = this.pdfService.sanitizeGeneratedHtml(originalHtmlRaw);
+    const originalHtmlSanitized = this.pdfService.sanitizeGeneratedHtml(originalHtmlRaw);
+    let originalHtml = this.pdfService.compactPdfLikeHtml(originalHtmlSanitized);
+    const originalCss = this.pdfService.extractCssFromHtml(originalHtml);
+    originalHtml = this.pdfService.ensureHtmlHasCss(originalHtml, originalCss);
     if (originalHtml !== originalHtmlRaw) {
       await fs.writeFile(record.originalHtmlPath, originalHtml, 'utf-8');
     }
@@ -92,7 +104,13 @@ export class ResumeService {
       jobDescription,
       immutableData,
     });
-    const optimizedHtml = this.pdfService.sanitizeGeneratedHtml(optimizedHtmlRaw);
+    const optimizedHtmlSanitized = this.pdfService.sanitizeGeneratedHtml(optimizedHtmlRaw);
+    const optimizedHtmlCompacted = this.pdfService.compactPdfLikeHtml(optimizedHtmlSanitized);
+    const optimizedHtml = this.pdfService.ensureHtmlHasCss(
+      optimizedHtmlCompacted,
+      originalCss,
+    );
+    const optimizedCss = this.pdfService.extractCssFromHtml(optimizedHtml);
 
     if (!this.pdfService.isValidHtml(optimizedHtml)) {
       throw new UnprocessableEntityException(
@@ -112,6 +130,7 @@ export class ResumeService {
     return {
       resumeId: id,
       optimizedHtml,
+      optimizedCss,
     };
   }
 
@@ -127,7 +146,18 @@ export class ResumeService {
     }
 
     const optimizedHtmlRaw = await fs.readFile(record.optimizedHtmlPath, 'utf-8');
-    const optimizedHtml = this.pdfService.sanitizeGeneratedHtml(optimizedHtmlRaw);
+    const optimizedHtmlSanitized = this.pdfService.sanitizeGeneratedHtml(optimizedHtmlRaw);
+    const optimizedHtmlCompacted = this.pdfService.compactPdfLikeHtml(
+      optimizedHtmlSanitized,
+    );
+    const fallbackCss = await this.getOriginalCss(record);
+    const optimizedHtml = this.pdfService.ensureHtmlHasCss(
+      optimizedHtmlCompacted,
+      fallbackCss,
+    );
+    if (optimizedHtml !== optimizedHtmlRaw) {
+      await fs.writeFile(record.optimizedHtmlPath, optimizedHtml, 'utf-8');
+    }
     const finalPdfBuffer = await this.pdfService.convertHtmlToPdfBuffer(optimizedHtml);
 
     const finalPdfPath = path.join(this.getResumeDirectory(id), 'optimized.pdf');
@@ -144,7 +174,9 @@ export class ResumeService {
     };
   }
 
-  async getOptimizedHtml(id: string): Promise<{ resumeId: string; optimizedHtml: string }> {
+  async getOptimizedHtml(
+    id: string,
+  ): Promise<{ resumeId: string; optimizedHtml: string; optimizedCss: string }> {
     const record = await this.getRecordOrFail(id);
 
     if (!record.optimizedHtmlPath) {
@@ -154,7 +186,16 @@ export class ResumeService {
     }
 
     const optimizedHtmlRaw = await fs.readFile(record.optimizedHtmlPath, 'utf-8');
-    const optimizedHtml = this.pdfService.sanitizeGeneratedHtml(optimizedHtmlRaw);
+    const optimizedHtmlSanitized = this.pdfService.sanitizeGeneratedHtml(optimizedHtmlRaw);
+    const optimizedHtmlCompacted = this.pdfService.compactPdfLikeHtml(
+      optimizedHtmlSanitized,
+    );
+    const fallbackCss = await this.getOriginalCss(record);
+    const optimizedHtml = this.pdfService.ensureHtmlHasCss(
+      optimizedHtmlCompacted,
+      fallbackCss,
+    );
+    const optimizedCss = this.pdfService.extractCssFromHtml(optimizedHtml);
     if (optimizedHtml !== optimizedHtmlRaw) {
       await fs.writeFile(record.optimizedHtmlPath, optimizedHtml, 'utf-8');
     }
@@ -162,6 +203,7 @@ export class ResumeService {
     return {
       resumeId: id,
       optimizedHtml,
+      optimizedCss,
     };
   }
 
@@ -200,6 +242,11 @@ export class ResumeService {
 
   private async ensureStorageRoot(): Promise<void> {
     await fs.mkdir(this.storageRoot, { recursive: true });
+  }
+
+  private async getOriginalCss(record: ResumeRecord): Promise<string> {
+    const originalHtmlRaw = await fs.readFile(record.originalHtmlPath, 'utf-8');
+    return this.pdfService.extractCssFromHtml(originalHtmlRaw);
   }
 
   private getResumeDirectory(id: string): string {
