@@ -204,7 +204,6 @@ export class PdfService {
 
     type Segment = { top: number; left: number; text: string; bold: boolean };
     type CompactLine = { text: string; isHeading: boolean };
-    type Block = { kind: 'heading' | 'paragraph'; text: string };
     const segments: Segment[] = [];
     const styleContent = $('style')
       .map((_idx, styleTag) => $(styleTag).html() || '')
@@ -220,7 +219,7 @@ export class PdfService {
 
     textNodes.each((_idx, el) => {
       const node = $(el);
-      const text = node.text().replace(/\s+/g, ' ').trim();
+      const text = this.extractReadableTextFromPdfNode(el);
       if (!text) {
         return;
       }
@@ -314,41 +313,9 @@ export class PdfService {
     if (!compactLines.length) {
       return html;
     }
-
-    const blocks: Block[] = [];
-    let paragraphBuffer: string[] = [];
-
-    const flushParagraph = () => {
-      if (!paragraphBuffer.length) {
-        return;
-      }
-
-      const text = this.mergeLineSegments(paragraphBuffer);
-      if (text) {
-        blocks.push({ kind: 'paragraph', text });
-      }
-      paragraphBuffer = [];
-    };
-
-    for (const line of compactLines) {
+    const bodyLines = compactLines.map((line, index) => {
+      const escapedText = this.escapeHtml(line.text);
       if (line.isHeading) {
-        flushParagraph();
-        blocks.push({ kind: 'heading', text: line.text });
-        continue;
-      }
-
-      const previousLine = paragraphBuffer[paragraphBuffer.length - 1] || '';
-      if (this.shouldStartNewParagraph(previousLine, line.text)) {
-        flushParagraph();
-      }
-      paragraphBuffer.push(line.text);
-    }
-
-    flushParagraph();
-
-    const bodyLines = blocks.map((block, index) => {
-      const escapedText = this.escapeHtml(block.text);
-      if (block.kind === 'heading') {
         const headingTag = index === 0 ? 'h1' : 'h2';
         return `  <${headingTag}>${escapedText}</${headingTag}>`;
       }
@@ -383,7 +350,6 @@ export class PdfService {
     this.handlePageContainer($);
 
     this.removeComments($.root()[0]);
-    this.removeEmptyTextNodes($.root()[0]);
     return $.html();
   }
 
@@ -425,26 +391,6 @@ export class PdfService {
 
     first.replaceWith(first.contents());
     $('#page-container').remove();
-  }
-
-  private removeEmptyTextNodes(node?: Node | null): void {
-    if (!node || !(node as Element).children) {
-      return;
-    }
-
-    const element = node as Element;
-    element.children = element.children.filter((child) => {
-      if (child.type !== 'text') {
-        return true;
-      }
-
-      const text = (child as unknown as { data?: string }).data || '';
-      return text.trim().length > 0;
-    });
-
-    for (const child of element.children) {
-      this.removeEmptyTextNodes(child);
-    }
   }
 
   private extractStyleNumber(
@@ -503,25 +449,6 @@ export class PdfService {
     return map;
   }
 
-  private shouldStartNewParagraph(previousLine: string, currentLine: string): boolean {
-    if (!previousLine) {
-      return false;
-    }
-
-    if (/@|\|/.test(currentLine)) {
-      return true;
-    }
-
-    const dateLike = /^\d{1,2}\/\d{4}\s*[-–]/.test(currentLine);
-    if (dateLike) {
-      return true;
-    }
-
-    const looksLikeBullet =
-      /^[A-ZÀ-Ý][^:]{0,70}:\s/.test(currentLine) && /[.!?]$/.test(previousLine);
-    return looksLikeBullet;
-  }
-
   private escapeHtml(value: string): string {
     return value
       .replace(/&/g, '&amp;')
@@ -529,5 +456,40 @@ export class PdfService {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  private extractReadableTextFromPdfNode(rootNode: Node): string {
+    const walk = (node: Node): string => {
+      if (node.type === 'text') {
+        return (node as unknown as { data?: string }).data || '';
+      }
+
+      if (node.type !== 'tag') {
+        return '';
+      }
+
+      const element = node as Element;
+      const classList = (element.attribs?.class || '').split(/\s+/).filter(Boolean);
+      const isPdfSpaceCarrier = classList.some(
+        (className) => className === '_' || /^_[a-z0-9]+$/i.test(className),
+      );
+
+      if (element.name === 'br') {
+        return ' ';
+      }
+
+      let output = '';
+      for (const child of element.children || []) {
+        output += walk(child);
+      }
+
+      if (!output && isPdfSpaceCarrier) {
+        return ' ';
+      }
+
+      return output;
+    };
+
+    return walk(rootNode).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
   }
 }
