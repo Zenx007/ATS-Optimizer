@@ -98,9 +98,12 @@ export class ResumeService {
     if (originalHtml !== originalHtmlRaw) {
       await fs.writeFile(record.originalHtmlPath, originalHtml, 'utf-8');
     }
+    const llmFriendlyOriginalHtml = this.pdfService.toLlmFriendlyResumeHtml(
+      originalHtml,
+    );
 
     const optimizedHtmlRaw = await this.geminiService.optimizeResume({
-      resumeHtml: originalHtml,
+      resumeHtml: llmFriendlyOriginalHtml,
       jobDescription,
       immutableData,
     });
