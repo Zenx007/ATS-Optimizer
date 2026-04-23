@@ -4,7 +4,7 @@
   "private": true,
   "description": "API NestJS for ATS Optimizer",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts"
   },

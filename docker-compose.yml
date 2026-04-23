@@ -5,13 +5,12 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: ats-optimizer-api
+    env_file:
+      - .env
     ports:
       - "${API_PORT:-3000}:3000"
     environment:
       PORT: 3000
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       PDF2HTMLEX_BIN: pdf2htmlEX
     volumes:
       - api_storage:/app/storage

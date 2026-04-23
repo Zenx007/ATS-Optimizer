@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Currículo</title>
+  <style>body{font-family:Arial,sans-serif;color:#111;margin:24px auto;max-width:820px;line-height:1.45;padding:0 16px}h1{font-size:26px;margin:0 0 10px}h2{font-size:18px;margin:20px 0 8px}p{margin:0 0 8px}</style>
+</head>
+<body>
+  <p>JoãoVictorGonçalvesdaSilva</p>
+  <p>MG-ConselheiroLafaiete|joaovictordev0720@gmail.com|(31)97354-2794 GitHub:gh/joãovictorLinkedin:in/joãovictor</p>
+  <h2>RESUMOPROFISSIONAL</h2>
+  <p>EngenheirodeSoftwareemformaçãocomexperiêncianodesenvolvimentodesistemasdistribuídoseAPIs RESTfuldealtaperformanceutilizandoC#(.NET)eNode.js(NestJS).Atuaçãonaconstruçãodearquiteturas escaláveisbaseadasemCleanArchitectureeSOLID,comusodemensageriaassíncrona(RabbitMQ)e cachedistribuído(Redis).Experiênciaemotimizaçãodebancosdedadosrelacionais,alcançandoredução deaté50%nalatênciadeserviçoscríticos.VivênciaemambientesCloud(AWS/Azure),automaçãocom CI/CD,conteinerizaçãocomDockerefortefocoemqualidadedecódigopormeiodetestesautomatizados (TDD).Backend,SoftwareEngineer,APIs,Microservices,Cloud,CI/CD,DistributedSystems</p>
+  <h2>EXPERIÊNCIAPROFISSIONAL:</h2>
+  <p>Desenvolvedor-SecondMind</p>
+  <p>05/2025-Atualmente DesenvolvimentodeAPIsdeAltaPerformance:AtuaçãonaconstruçãoeevoluçãodeAPIsRESTful escaláveis(C#/.NETeNode.js/NestJS),garantindoaintegraçãoeficienteentreaplicaçõeswebemobile. ArquiteturadeMensageriaeCache:ImplementaçãodemensageriaassíncronacomRabbitMQpara desacoplamentodeserviçoseprocessamentoemsegundoplano,alémdeestratégiasdecache distribuídocomRedis,otimizandoalatênciadedadosfrequentementeacessados. ConteinerizaçãoePadronização:UtilizaçãodeDockereDockerComposeparapadronizaçãodos ambientesdedesenvolvimentoeprodução,garantindoparidadeentreambienteseagilidadenosetupde novosserviços. OtimizaçãodeBancodeDados:Análiseerefatoraçãodequeriescomplexas(SQLServer/PostgreSQL),resultandonareduçãode50%notempoderespostadeendpointscríticos. SegurançaeControledeAcesso:Implementaçãodemódulosrobustosdeautenticaçãoeautorização (JWTcomRefreshTokeneRBAC),assegurandoaproteçãodedadossensíveis. DevOpseCloud:ManutençãodeserviçosemambienteCloud(AWS/Azure)eparticipaçãona estruturaçãodepipelinesdeCI/CD,contribuindoparaaaltadisponibilidadeeautomaçãodosprocessos dedeploy. MetodologiaÁgil:ColaboraçãoativaemrituaisScrum,atuandodiretamentenaresoluçãode impedimentostécnicosenaentregacontínuadevalor. QualidadedeSoftwareeTestes:AplicaçãopráticadeCleanArchitectureeprincípiosSOLIDpara garantirumcódigosustentável.Responsávelpelaimplementaçãodepirâmidedetestes,incluindotestes unitáriosetestesdeintegração/E2EutilizandoJesteSupertest,elevandoacoberturadecódigoea confiabilidadedasentregasemprodução.</p>
+  <h2>EDUCAÇÃO</h2>
+  <p>Unifasar-UniversidadeSantaRita BachareladoemEngenhariadeSoftware(Fev2024-Dez2027)</p>
+  <h2>HARDSKILLS</h2>
+  <p>Linguagens:C#,Java,SQL,TypeScript,JavaScript,HTML,CSS Frameworks:.NET,SpringBoot,NestJS,React BancosdeDados:PostgreSQL,MySQL,MongoDB Cloud&amp;DevOps:AWS,Azure,Docker,DockerCompose,Git,CI/CD(GitHubActions),Redis,RabbitMQ Segurança&amp;APIs:JWT(Auth),OAuth,RESTful,Swagger,Postman,Insomnia IDEs&amp;Editores:VisualStudio,VSCode,Rider,IntelliJ</p>
+  <h2>IDIOMAS:</h2>
+  <p>Inglês:Avançado</p>
+</body>
+</html>
