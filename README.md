@@ -5,7 +5,7 @@ Sistema web completo para otimização de currículo com foco em ATS.
 Fluxo implementado:
 1. Upload do currículo em PDF.
 2. Conversão `PDF -> HTML` e armazenamento local.
-3. Envio do HTML original + descrição da vaga + dados imutáveis para Gemini.
+3. Envio do HTML original + descrição da vaga + dados imutáveis para OpenRouter.
 4. Recebimento de HTML otimizado.
 5. Conversão `HTML -> PDF`.
 6. Preview do HTML otimizado e download do PDF final.
@@ -19,7 +19,7 @@ Fluxo implementado:
 
 - Node.js 20+
 - npm 10+
-- Chave da Gemini (`GEMINI_API_KEY`)
+- Chave da OpenRouter (`OPENROUTER_API_KEY`)
 - `pdf2htmlEX` instalado no sistema (usado para conversão `PDF -> HTML`)
 
 ## 1) Configuração do back-end (NestJS)
@@ -36,8 +36,8 @@ npm run start:dev
 Arquivo: `api/.env`
 
 - `PORT`: porta da API (padrão: `3000`)
-- `GEMINI_API_KEY`: chave da Gemini
-- `GEMINI_MODEL`: modelo da Gemini (padrão no código: `gemini-2.0-flash`)
+- `OPENROUTER_API_KEY`: chave da OpenRouter
+- `OPENROUTER_MODEL`: modelo na OpenRouter (padrão no código: `Ling-2.6-flash`)
 - `FRONTEND_URL`: URL do front para CORS (padrão: `http://localhost:5173`)
 - `PDF2HTMLEX_BIN`: caminho/nome do binário do `pdf2htmlEX` (padrão: `pdf2htmlEX`)
 
@@ -84,7 +84,7 @@ Base URL: `http://localhost:3000`
 }
 ```
 
-- Chama Gemini e salva `optimized.html`
+- Chama OpenRouter e salva `optimized.html`
 
 4. `POST /resumes/:id/generate-pdf`
 - Converte `optimized.html` para `optimized.pdf`
@@ -108,7 +108,7 @@ Arquivos salvos:
 - `optimized.pdf` (após geração)
 - `metadata.json` (descrição da vaga, restrições e metadados)
 
-## Prompt interno enviado para Gemini
+## Prompt interno enviado para OpenRouter
 
 O prompt foi implementado no serviço `src/gemini/gemini.service.ts` e segue as regras solicitadas:
 - usar HTML original + vaga + dados imutáveis

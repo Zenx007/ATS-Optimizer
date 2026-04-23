@@ -11,10 +11,15 @@ interface OptimizeInput {
   immutableData: string;
 }
 
-interface GeminiGenerateContentResponse {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{ text?: string }>;
+interface OpenRouterChatCompletionResponse {
+  choices?: Array<{
+    message?: {
+      content?:
+        | string
+        | Array<{
+            type?: string;
+            text?: string;
+          }>;
     };
   }>;
 }
@@ -23,51 +28,63 @@ const SYSTEM_PROMPT = `Você é um especialista em recrutamento, currículos e o
 Sua tarefa é adaptar um currículo em HTML para uma vaga específica, maximizando a aderência ao ATS de forma ética e profissional.
 
 Regras obrigatórias:
-- Retorne somente o HTML final do currículo.
-- Não use markdown.
-- Não use blocos de código.
-- Não escreva explicações.
-- Não escreva comentários antes ou depois do HTML.
-- Não invente experiências, resultados ou qualificações que não existam no currículo.
-- Você pode reorganizar, reescrever e otimizar o conteúdo para melhorar clareza, palavras-chave e aderência à vaga.
-- Preserve obrigatoriamente os dados marcados como não alteráveis.
-- O HTML retornado deve estar completo e válido para renderização.`;
+
+    Retorne somente o HTML final do currículo.
+    Não use markdown.
+    Não use blocos de código.
+    Não escreva explicações.
+    Não escreva comentários antes ou depois do HTML.
+    Você pode reorganizar, reescrever e otimizar o conteúdo para melhorar clareza, palavras-chave e aderência à vaga.
+    Preserve obrigatoriamente os dados marcados como não alteráveis.
+    O HTML retornado deve estar completo e válido para renderização.
+    Deixe o curriculo passando com 100% do ATS de acordo com a vaga
+    Encaixe todas as keywords de forma natural no curriculo
+`;
 
 @Injectable()
 export class GeminiService {
   private readonly apiKey?: string;
   private readonly model: string;
-  private readonly apiBaseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
+  private readonly apiBaseUrl = 'https://openrouter.ai/api/v1/chat/completions';
 
   constructor(private readonly configService: ConfigService) {
-    this.apiKey = this.configService.get<string>('GEMINI_API_KEY');
-    this.model = this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash';
+    this.apiKey =
+      this.configService.get<string>('OPENROUTER_API_KEY') ||
+      this.configService.get<string>('GEMINI_API_KEY') ||
+      this.configService.get<string>('OPENAI_API_KEY');
+    this.model =
+      this.configService.get<string>('OPENROUTER_MODEL') ||
+      this.configService.get<string>('GEMINI_MODEL') ||
+      this.configService.get<string>('OPENAI_MODEL') ||
+      'Ling-2.6-flash';
   }
 
   async optimizeResume(input: OptimizeInput): Promise<string> {
     if (!this.apiKey) {
       throw new InternalServerErrorException(
-        'GEMINI_API_KEY não configurada no ambiente.',
+        'OPENROUTER_API_KEY não configurada no ambiente (fallbacks legados: GEMINI_API_KEY, OPENAI_API_KEY).',
       );
     }
 
     const prompt = this.buildPrompt(input);
 
     try {
-      const endpoint = `${this.apiBaseUrl}/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`;
-      const response = await fetch(endpoint, {
+      const response = await fetch(this.apiBaseUrl, {
         method: 'POST',
         headers: {
+          Authorization: `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          system_instruction: {
-            parts: [{ text: SYSTEM_PROMPT }],
-          },
-          contents: [
+          model: this.model,
+          messages: [
+            {
+              role: 'system',
+              content: SYSTEM_PROMPT,
+            },
             {
               role: 'user',
-              parts: [{ text: prompt }],
+              content: prompt,
             },
           ],
         }),
@@ -76,20 +93,20 @@ export class GeminiService {
       if (!response.ok) {
         const rawError = await response.text();
         throw new BadGatewayException(
-          `Gemini retornou erro HTTP ${response.status}: ${rawError || 'sem detalhes'}`,
+          `OpenRouter retornou erro HTTP ${response.status}: ${rawError || 'sem detalhes'}`,
         );
       }
 
-      const data = (await response.json()) as GeminiGenerateContentResponse;
+      const data = (await response.json()) as OpenRouterChatCompletionResponse;
       const rawOutput = this.extractTextFromResponse(data).trim();
       if (!rawOutput) {
-        throw new BadGatewayException('O Gemini retornou uma resposta vazia.');
+        throw new BadGatewayException('O OpenRouter retornou uma resposta vazia.');
       }
 
       const cleanedOutput = this.stripCodeFences(rawOutput).trim();
       if (!this.looksLikeHtml(cleanedOutput)) {
         throw new BadGatewayException(
-          'A resposta do Gemini não está em formato HTML válido.',
+          'A resposta do OpenRouter não está em formato HTML válido.',
         );
       }
 
@@ -100,17 +117,25 @@ export class GeminiService {
       }
 
       const message =
-        error instanceof Error ? error.message : 'Erro desconhecido no Gemini';
+        error instanceof Error ? error.message : 'Erro desconhecido no OpenRouter';
       throw new BadGatewayException(`Falha ao otimizar currículo com IA: ${message}`);
     }
   }
 
-  private extractTextFromResponse(response: GeminiGenerateContentResponse): string {
-    const parts = response.candidates?.[0]?.content?.parts || [];
-    return parts
-      .map((part) => part.text || '')
-      .join('')
-      .trim();
+  private extractTextFromResponse(response: OpenRouterChatCompletionResponse): string {
+    const content = response.choices?.[0]?.message?.content;
+    if (typeof content === 'string') {
+      return content.trim();
+    }
+
+    if (Array.isArray(content)) {
+      return content
+        .map((item) => (item.type === 'text' ? item.text || '' : ''))
+        .join('')
+        .trim();
+    }
+
+    return '';
   }
 
   private buildPrompt({ resumeHtml, jobDescription, immutableData }: OptimizeInput): string {
