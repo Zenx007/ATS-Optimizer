@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
-import { GeminiModule } from '../gemini/gemini.module';
+import { OpenRouterModule } from '../openrouter/openrouter.module';
 import { PdfModule } from '../pdf/pdf.module';
 import { ResumeController } from './resume.controller';
 import { ResumeService } from './resume.service';
 
 @Module({
-  imports: [PdfModule, GeminiModule],
+  imports: [PdfModule, OpenRouterModule],
   controllers: [ResumeController],
   providers: [ResumeService],
 })

@@ -42,39 +42,44 @@ Regras obrigatórias:
 `;
 
 @Injectable()
-export class GeminiService {
+export class OpenRouterService {
   private readonly apiKey?: string;
   private readonly model: string;
   private readonly apiBaseUrl = 'https://openrouter.ai/api/v1/chat/completions';
+  private readonly httpReferer?: string;
+  private readonly appTitle?: string;
 
   constructor(private readonly configService: ConfigService) {
-    this.apiKey =
-      this.configService.get<string>('OPENROUTER_API_KEY') ||
-      this.configService.get<string>('GEMINI_API_KEY') ||
-      this.configService.get<string>('OPENAI_API_KEY');
-    this.model =
-      this.configService.get<string>('OPENROUTER_MODEL') ||
-      this.configService.get<string>('GEMINI_MODEL') ||
-      this.configService.get<string>('OPENAI_MODEL') ||
-      'Ling-2.6-flash';
+    this.apiKey = this.configService.get<string>('OPENROUTER_API_KEY');
+    this.model = this.configService.get<string>('OPENROUTER_MODEL') || 'Ling-2.6-flash';
+    this.httpReferer = this.configService.get<string>('OPENROUTER_HTTP_REFERER');
+    this.appTitle = this.configService.get<string>('OPENROUTER_APP_TITLE');
   }
 
   async optimizeResume(input: OptimizeInput): Promise<string> {
     if (!this.apiKey) {
       throw new InternalServerErrorException(
-        'OPENROUTER_API_KEY não configurada no ambiente (fallbacks legados: GEMINI_API_KEY, OPENAI_API_KEY).',
+        'OPENROUTER_API_KEY não configurada no ambiente.',
       );
     }
 
     const prompt = this.buildPrompt(input);
 
     try {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      };
+      if (this.httpReferer) {
+        headers['HTTP-Referer'] = this.httpReferer;
+      }
+      if (this.appTitle) {
+        headers['X-OpenRouter-Title'] = this.appTitle;
+      }
+
       const response = await fetch(this.apiBaseUrl, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           model: this.model,
           messages: [

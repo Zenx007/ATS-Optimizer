@@ -38,6 +38,8 @@ Arquivo: `api/.env`
 - `PORT`: porta da API (padrão: `3000`)
 - `OPENROUTER_API_KEY`: chave da OpenRouter
 - `OPENROUTER_MODEL`: modelo na OpenRouter (padrão no código: `Ling-2.6-flash`)
+- `OPENROUTER_HTTP_REFERER`: URL da aplicação para atribuição no OpenRouter (opcional)
+- `OPENROUTER_APP_TITLE`: nome da aplicação para atribuição no OpenRouter (opcional)
 - `FRONTEND_URL`: URL do front para CORS (padrão: `http://localhost:5173`)
 - `PDF2HTMLEX_BIN`: caminho/nome do binário do `pdf2htmlEX` (padrão: `pdf2htmlEX`)
 
@@ -110,7 +112,7 @@ Arquivos salvos:
 
 ## Prompt interno enviado para OpenRouter
 
-O prompt foi implementado no serviço `src/gemini/gemini.service.ts` e segue as regras solicitadas:
+O prompt foi implementado no serviço `src/openrouter/openrouter.service.ts` e segue as regras solicitadas:
 - usar HTML original + vaga + dados imutáveis
 - otimizar para ATS sem inventar experiência
 - preservar dados bloqueados
