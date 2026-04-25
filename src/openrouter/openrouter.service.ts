@@ -34,6 +34,9 @@ Regras obrigatórias:
     Não use blocos de código.
     Não escreva explicações.
     Não escreva comentários antes ou depois do HTML.
+    Não devolva o currículo com a mesma estrutura original.
+    Crie uma nova formatação HTML do currículo (nova organização visual e semântica), mantendo profissionalismo e legibilidade.
+    Use obrigatoriamente os dados recebidos em "Dados que não podem ser alterados", "Descrição da vaga" e "HTML original do currículo".
     Você pode reorganizar, reescrever e otimizar o conteúdo para melhorar clareza, palavras-chave e aderência à vaga.
     Preserve obrigatoriamente os dados marcados como não alteráveis.
     O HTML retornado deve estar completo e válido para renderização.
@@ -144,7 +147,7 @@ export class OpenRouterService {
   }
 
   private buildPrompt({ resumeHtml, jobDescription, immutableData }: OptimizeInput): string {
-    return `Dados que não podem ser alterados:\n${immutableData}\n\nDescrição da vaga:\n${jobDescription}\n\nHTML original do currículo:\n${resumeHtml}\n\nAgora gere a versão final otimizada do currículo e retorne apenas o HTML final.`;
+    return `Dados que não podem ser alterados:\n${immutableData}\n\nDescrição da vaga:\n${jobDescription}\n\nHTML original do currículo:\n${resumeHtml}\n\nAgora gere uma versão final otimizada do currículo em uma NOVA FORMATAÇÃO HTML (não reutilize a mesma estrutura original) e retorne apenas o HTML final.`;
   }
 
   private stripCodeFences(value: string): string {
